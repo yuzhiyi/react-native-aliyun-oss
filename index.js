@@ -12,6 +12,7 @@ import {
 const NativeAliyunOSS = NativeModules.AliyunOSS;
 const UPLOAD_EVENT = 'uploadProgress';
 const DOWNLOAD_EVENT = 'downloadProgress';
+const ESUMA_UPLOAD_EVENT = 'esumableUploadProgress';
 
 const _subscriptions = new Map();
 
@@ -44,15 +45,27 @@ const AliyunOSS = {
     return NativeAliyunOSS.uploadObjectAsync(
       conf.bucketName,
       conf.sourceFile,
-      conf.ossFile,
-      conf.updateDate);
+      conf.ossFile);
   },
 
   downloadObjectAsync(conf) {
     return NativeAliyunOSS.downloadObjectAsync(
       conf.bucketName,
+      conf.ossFile,);
+  },
+
+  resumableUploadWithRecordPathSetting(conf,needCallBack,callbackUrl) {
+    return NativeAliyunOSS.resumableUploadWithRecordPathSetting(
+      conf.bucketName,
+      conf.sourceFile,
       conf.ossFile,
-      conf.updateDate);
+      needCallBack,
+      callbackUrl);
+  },
+  deleteFileFile(bucketName,ossFile) {
+    return NativeAliyunOSS.deleteFileFile(
+      bucketName,
+      ossFile);
   },
 
   /*监听上传和下载事件，
@@ -79,6 +92,13 @@ const AliyunOSS = {
             handler(downloadData);
           }
         );
+      } else if (type === ESUMA_UPLOAD_EVENT) {
+        listener = Emitter.addListener(
+          'esumableUploadProgress',
+          (esumableData) => {
+            handler(esumableData);
+          }
+        );
       } else {
         return false;
       }
@@ -98,14 +118,22 @@ const AliyunOSS = {
             handler(downloadData);
           }
         );
+      } else if (type === ESUMA_UPLOAD_EVENT) {
+        listener = NativeAppEventEmitter.addListener(
+          'esumableUploadProgress',
+          (esumableData) => {
+            handler(esumableData);
+          }
+        );
       } else {
         return false;
       }
     }
     _subscriptions.set(handler, listener);
   },
+
   removeEventListener(type, handler) {
-    if (type !== UPLOAD_EVENT && type !== DOWNLOAD_EVENT) {
+    if (type !== UPLOAD_EVENT && type !== DOWNLOAD_EVENT && type !== ESUMA_UPLOAD_EVENT) {
       return false;
     }
     var listener = _subscriptions.get(handler);
@@ -114,7 +142,35 @@ const AliyunOSS = {
     }
     listener.remove();
     _subscriptions.delete(handler);
-  }
-};
+  },
 
+  getBuckerFiles(bucketName,file,maxkeys) {
+     return NativeAliyunOSS.getBuckerFiles(bucketName,file,maxkeys);
+  },
+
+  addGetBuckerFilesListener(handler) {
+      var listener = NativeAppEventEmitter.addListener(
+          'getBuckerFiles',
+          (buckerFiles) => {
+            handler(buckerFiles);
+          }
+        );
+      _subscriptions.set(handler, listener);
+  },
+
+  presignConstrainedObjectURLs(bucketName,objectKeys) {
+    return NativeAliyunOSS.presignConstrainedObjectURLs(bucketName,objectKeys);
+  },
+
+  addPresignConstrainedObjectURLsListener(handler) {
+      var listener = NativeAppEventEmitter.addListener(
+          'presignConstrainedObjectURLs',
+          (objectURLs) => {
+            handler(objectURLs);
+          }
+        );
+      _subscriptions.set(handler, listener);
+  },
+
+};
 module.exports = AliyunOSS;
