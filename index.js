@@ -62,8 +62,8 @@ const AliyunOSS = {
       needCallBack,
       callbackUrl);
   },
-  deleteFileFile(bucketName,ossFile) {
-    return NativeAliyunOSS.deleteFileFile(
+  deleteFile(bucketName,ossFile) {
+    return NativeAliyunOSS.deleteFile(
       bucketName,
       ossFile);
   },
