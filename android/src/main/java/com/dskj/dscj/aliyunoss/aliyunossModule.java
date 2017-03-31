@@ -407,7 +407,7 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void deleteFile(String bucketName,String objectKey, final Promise promise) {
         // 创建删除请求
-        DeleteObjectRequest delete = new DeleteObjectRequest("<bucketName>", "<objectKey>");
+        DeleteObjectRequest delete = new DeleteObjectRequest(bucketName, objectKey);
         // 异步删除
         OSSAsyncTask deleteTask = oss.asyncDeleteObject(delete, new OSSCompletedCallback<DeleteObjectRequest, DeleteObjectResult>() {
             @Override
