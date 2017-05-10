@@ -149,7 +149,7 @@ const AliyunOSS = {
   },
 
   addGetBuckerFilesListener(handler) {
-      var listener = NativeAppEventEmitter.addListener(
+      var listener = NativeAppEventEmitter.once(
           'getBuckerFiles',
           (buckerFiles) => {
             handler(buckerFiles);
@@ -177,7 +177,7 @@ const AliyunOSS = {
     });
   },
   addPresignConstrainedObjectURLsListener(handler) {
-      var listener = NativeAppEventEmitter.addListener(
+      var listener = NativeAppEventEmitter.once(
           'presignConstrainedObjectURLs',
           (objectURLs) => {
             handler(objectURLs);
