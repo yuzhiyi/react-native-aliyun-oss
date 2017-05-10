@@ -47,6 +47,7 @@ import java.lang.String;
 
 import android.os.Environment;
 import android.util.Log;
+import android.text.TextUtils;
 import java.util.HashMap;
 
 /**
@@ -280,27 +281,34 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void getBuckerFiles(String bucketName,String file,int maxkeys, final Promise promise) {
+    public void getBuckerFiles(String bucketName,String file,int maxkeys, String marker, final Promise promise) {
     	 ListObjectsRequest listObjects = new ListObjectsRequest(bucketName);
     	// 设定前缀
     	listObjects.setPrefix(file);
         listObjects.setMaxKeys(maxkeys);
+	if(!TextUtils.isEmpty(marker))
+	listObjects.setMarker(marker);
     	// 设置成功、失败回调，发送异步罗列请求
     	OSSAsyncTask task = oss.asyncListObjects(listObjects, new OSSCompletedCallback<ListObjectsRequest, ListObjectsResult>() {
     	    @Override
     	    public void onSuccess(ListObjectsRequest request, ListObjectsResult result) {
         		Log.d("AyncListObjects", "Success!");
 
+		WritableMap buckerFilesResult = Arguments.createMap();
                 WritableArray buckerFileArray = Arguments.createArray();
                 for (int i = 0; i < result.getObjectSummaries().size(); i++) {
                     WritableMap buckerFile = Arguments.createMap();
                     buckerFile.putString("key",result.getObjectSummaries().get(i).getKey());
                     buckerFile.putString("eTag",result.getObjectSummaries().get(i).getETag());
                     buckerFile.putString("lastModified",result.getObjectSummaries().get(i).getLastModified().toString());
+		    buckerFile.putDouble("size",(double)result.getObjectSummaries().get(i).getSize());
                     buckerFileArray.pushMap(buckerFile);
                 }
+		buckerFilesResult.putBoolean("isTruncated", result.isTruncated());
+		buckerFilesResult.putString("nextMarker",result.getNextMarker());
+		buckerFilesResult.putArray("buckerFiles",buckerFileArray);
         	    getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                                    .emit("getBuckerFiles", buckerFileArray);
+                                    .emit("getBuckerFiles", buckerFilesResult);
 
                 promise.resolve("getBuckerFilesSuccess");
     	    }
@@ -459,9 +467,37 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
                 @Override
                 public void onFailure(PutObjectRequest request, ClientException clientExcepion, ServiceException serviceException) {
                     // 异常处理
-                    promise.reject("uploadCallBackSuccess");
+                    promise.reject("uploadCallBackFail");
                 }
             });
+    }
+    
+   @ReactMethod
+    public void checkObjectExist(String bucketName,String objectKey) {
+	WritableMap checkObjectExistData = Arguments.createMap();
+	try {
+    	    if (oss.doesObjectExist(bucketName, objectKey)) {
+               Log.d("doesObjectExist", "object exist.");
+	       checkObjectExistData.putBoolean("isObjectExist", true);
+            } else {
+               Log.d("doesObjectExist", "object does not exist.");
+	       checkObjectExistData.putBoolean("isObjectExist", false);
+            }
+        } catch (ClientException e) {
+            // 本地异常如网络异常等
+            e.printStackTrace();
+	    checkObjectExistData.putBoolean("isObjectExist", false);
+        } catch (ServiceException e) {
+            // 服务异常
+	    Log.e("ErrorCode", e.getErrorCode());
+	    Log.e("RequestId", e.getRequestId());
+	    Log.e("HostId", e.getHostId());
+	    Log.e("RawMessage", e.getRawMessage());
+	    checkObjectExistData.putBoolean("isObjectExist", false);
+        } finally {
+	    getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit("checkObjectExist", checkObjectExistData);
+	}
     }
 
     @ReactMethod

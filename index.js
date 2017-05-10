@@ -144,8 +144,8 @@ const AliyunOSS = {
     _subscriptions.delete(handler);
   },
 
-  getBuckerFiles(bucketName,file,maxkeys) {
-     return NativeAliyunOSS.getBuckerFiles(bucketName,file,maxkeys);
+  getBuckerFiles(bucketName,file,maxkeys,marker) {
+     return NativeAliyunOSS.getBuckerFiles(bucketName,file,maxkeys,marker);
   },
 
   addGetBuckerFilesListener(handler) {
@@ -162,6 +162,20 @@ const AliyunOSS = {
     return NativeAliyunOSS.presignConstrainedObjectURLs(bucketName,objectKeys);
   },
 
+  checkObjectExist(bucketName,objectKey) {
+    return new Promise((resolve, reject) => {
+      try {
+        NativeAliyunOSS.checkObjectExist(bucketName, objectKey);
+      }
+      catch (e) {
+        reject(e);
+        return;
+      }
+      NativeAppEventEmitter.once('checkObjectExist', resp => {
+        resolve(resp);
+      });
+    });
+  },
   addPresignConstrainedObjectURLsListener(handler) {
       var listener = NativeAppEventEmitter.addListener(
           'presignConstrainedObjectURLs',
