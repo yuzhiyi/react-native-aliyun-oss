@@ -62,6 +62,11 @@ const AliyunOSS = {
       needCallBack,
       callbackUrl);
   },
+
+  cancleResumableTask() {
+     return NativeAliyunOSS.cancleResumableTask();
+  },
+
   deleteFile(bucketName,ossFile) {
     return NativeAliyunOSS.deleteFile(
       bucketName,

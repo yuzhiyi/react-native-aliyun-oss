@@ -57,6 +57,7 @@ import java.util.HashMap;
 public class aliyunossModule extends ReactContextBaseJavaModule {
 
     private OSS oss;
+    private OSSAsyncTask resumableTask;
 
     public aliyunossModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -375,7 +376,7 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
         });
 
 
-        OSSAsyncTask resumableTask = oss.asyncResumableUpload(request, new OSSCompletedCallback<ResumableUploadRequest, ResumableUploadResult>() {
+       	resumableTask = oss.asyncResumableUpload(request, new OSSCompletedCallback<ResumableUploadRequest, ResumableUploadResult>() {
             @Override
             public void onSuccess(ResumableUploadRequest request, ResumableUploadResult result) {
                 Log.d("resumableUpload", "success!");
@@ -402,6 +403,13 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
         });
 
         resumableTask.waitUntilFinished();
+    }
+    
+    @ReactMethod
+    public void cancleResumableTask() {
+	if(resumableTask != null) {
+	    resumableTask.cancel();
+	}
     }
 
     private String presignConstrainedObjectURL(String bucketName,String objectKey) {
