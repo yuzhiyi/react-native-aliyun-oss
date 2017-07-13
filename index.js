@@ -13,6 +13,8 @@ const NativeAliyunOSS = NativeModules.AliyunOSS;
 const UPLOAD_EVENT = 'uploadProgress';
 const DOWNLOAD_EVENT = 'downloadProgress';
 const ESUMA_UPLOAD_EVENT = 'esumableUploadProgress';
+const RESUMA_UPLOAD_SUCCESS_EVENT = 'resumableUploadSuccess';
+const RESUMA_UPLOAD_FAIL_EVENT = 'resumableUploadFail';
 
 const _subscriptions = new Map();
 
@@ -55,7 +57,7 @@ const AliyunOSS = {
   },
 
   resumableUploadWithRecordPathSetting(conf,needCallBack,callbackUrl) {
-    return NativeAliyunOSS.resumableUploadWithRecordPathSetting(
+    NativeAliyunOSS.resumableUploadWithRecordPathSetting(
       conf.bucketName,
       conf.sourceFile,
       conf.ossFile,
@@ -64,7 +66,7 @@ const AliyunOSS = {
   },
 
   cancleResumableTask() {
-     return NativeAliyunOSS.cancleResumableTask();
+     NativeAliyunOSS.cancleResumableTask();
   },
 
   deleteFile(bucketName,ossFile) {
@@ -104,6 +106,20 @@ const AliyunOSS = {
             handler(esumableData);
           }
         );
+      } else if (type === RESUMA_UPLOAD_SUCCESS_EVENT) {
+        listener = Emitter.addListener(
+          RESUMA_UPLOAD_SUCCESS_EVENT,
+          resumableData => {
+            handler(resumableData);
+          }
+        );
+      } else if (type === RESUMA_UPLOAD_FAIL_EVENT) {
+        listener = Emitter.addListener(
+          RESUMA_UPLOAD_FAIL_EVENT,
+          resumableData => {
+            handler(resumableData);
+          }
+        );
       } else {
         return false;
       }
@@ -128,6 +144,20 @@ const AliyunOSS = {
           'esumableUploadProgress',
           (esumableData) => {
             handler(esumableData);
+          }
+        );
+      } else if (type === RESUMA_UPLOAD_SUCCESS_EVENT) {
+        listener = NativeAppEventEmitter.addListener(
+          RESUMA_UPLOAD_SUCCESS_EVENT,
+          resumableData => {
+            handler(resumableData);
+          }
+        );
+      } else if (type === RESUMA_UPLOAD_FAIL_EVENT) {
+        listener = NativeAppEventEmitter.addListener(
+          RESUMA_UPLOAD_FAIL_EVENT,
+          resumableData => {
+            handler(resumableData);
           }
         );
       } else {

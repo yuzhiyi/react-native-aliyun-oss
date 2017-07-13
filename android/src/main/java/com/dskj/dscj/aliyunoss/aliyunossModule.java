@@ -336,7 +336,7 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
 
     // 异步断点上传，设置记录保存路径，即使任务失败，下次启动仍能继续
     @ReactMethod
-    public void resumableUploadWithRecordPathSetting(String bucketName, String sourceFile, final String ossFile,boolean needCallBack,final String callbackUrl, final Promise promise) {
+    public void resumableUploadWithRecordPathSetting(String bucketName, String sourceFile, final String ossFile,boolean needCallBack,final String callbackUrl) {
 
         String recordDirectory = Environment.getExternalStorageDirectory().getAbsolutePath() + "/oss_record/";
 
@@ -376,20 +376,22 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
         });
 
 
-       	resumableTask = oss.asyncResumableUpload(request, new OSSCompletedCallback<ResumableUploadRequest, ResumableUploadResult>() {
+        resumableTask = oss.asyncResumableUpload(request, new OSSCompletedCallback<ResumableUploadRequest, ResumableUploadResult>() {
             @Override
             public void onSuccess(ResumableUploadRequest request, ResumableUploadResult result) {
+                resumableTask = null;
                 Log.d("resumableUpload", "success!");
-                promise.resolve("resumableUploadSuccess");
+                getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                        .emit("resumableUploadSuccess", "");
             }
 
             @Override
             public void onFailure(ResumableUploadRequest request, ClientException clientExcepion, ServiceException serviceException) {
+                resumableTask = null;
                 // 请求异常
                 if (clientExcepion != null) {
                     // 本地异常如网络异常等
                     clientExcepion.printStackTrace();
-                    promise.resolve("EsumableUploadSuccess");
                 }
                 if (serviceException != null) {
                     // 服务异常
@@ -398,18 +400,20 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
                     Log.e("HostId", serviceException.getHostId());
                     Log.e("RawMessage", serviceException.getRawMessage());
                 }
-                promise.reject("EsumableUploadFaile", "message:123123");
+                getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                        .emit("resumableUploadFail", "message:123123");
             }
         });
 
-        resumableTask.waitUntilFinished();
+        // resumableTask.waitUntilFinished(); // 这会让 JS 线程也无法响应用户操作，直到任务完成
     }
-    
+
     @ReactMethod
     public void cancleResumableTask() {
-	if(resumableTask != null) {
-	    resumableTask.cancel();
-	}
+        if (resumableTask != null) {
+            resumableTask.cancel();
+            resumableTask = null;
+        }
     }
 
     private String presignConstrainedObjectURL(String bucketName,String objectKey) {
@@ -479,7 +483,7 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
                 }
             });
     }
-    
+
    @ReactMethod
     public void checkObjectExist(String bucketName,String objectKey) {
 	WritableMap checkObjectExistData = Arguments.createMap();
