@@ -58,6 +58,7 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
 
     private OSS oss;
     private OSSAsyncTask resumableTask;
+    private Long progressValue = 0L;
 
     public aliyunossModule(ReactApplicationContext reactContext) {
         super(reactContext);
@@ -365,13 +366,14 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
             @Override
             public void onProgress(ResumableUploadRequest request, long currentSize, long totalSize) {
                 Log.d("PutObject", "currentSize: " + currentSize + " totalSize: " + totalSize);
-                String str_currentSize = Long.toString(currentSize);
-                String str_totalSize = Long.toString(totalSize);
-                WritableMap onProgressValueData = Arguments.createMap();
-                onProgressValueData.putString("currentSize", str_currentSize);
-                onProgressValueData.putString("totalSize", str_totalSize);
-                getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                        .emit("esumableUploadProgress", onProgressValueData);
+                Long value = totalSize == 0 ? 0 : (currentSize * 100 / totalSize);
+                if (progressValue != value) {
+                    progressValue = value;
+                    WritableMap onProgressValueData = Arguments.createMap();
+                    onProgressValueData.putString("progressValue", Long.toString(progressValue));
+                    getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                            .emit("esumableUploadProgress", onProgressValueData);
+                }
             }
         });
 
@@ -379,7 +381,6 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
         resumableTask = oss.asyncResumableUpload(request, new OSSCompletedCallback<ResumableUploadRequest, ResumableUploadResult>() {
             @Override
             public void onSuccess(ResumableUploadRequest request, ResumableUploadResult result) {
-                resumableTask = null;
                 Log.d("resumableUpload", "success!");
                 getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
                         .emit("resumableUploadSuccess", "");
@@ -387,7 +388,6 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
 
             @Override
             public void onFailure(ResumableUploadRequest request, ClientException clientExcepion, ServiceException serviceException) {
-                resumableTask = null;
                 // 请求异常
                 if (clientExcepion != null) {
                     // 本地异常如网络异常等
@@ -412,7 +412,6 @@ public class aliyunossModule extends ReactContextBaseJavaModule {
     public void cancleResumableTask() {
         if (resumableTask != null) {
             resumableTask.cancel();
-            resumableTask = null;
         }
     }
 
