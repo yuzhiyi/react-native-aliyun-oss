@@ -18,7 +18,7 @@
 }
 
 - (NSArray<NSString *> *)supportedEvents {
-    return @[@"uploadProgress", @"downloadProgress", @"getBuckerFiles", @"esumableUploadProgress",@"checkObjectExist"];
+    return @[@"uploadProgress", @"downloadProgress", @"getBuckerFiles", @"esumableUploadProgress",@"checkObjectExist",@"resumableUploadSuccess",@"resumableUploadFail"];
 }
 
 // get local file dir which is readwrite able
@@ -212,7 +212,7 @@ RCT_REMAP_METHOD(checkObjectExist, bucketName:(NSString *)BucketName
 
 //异步断点上传
 RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)BucketName
-                 sourceFile:(NSData *)sourceFile
+                 sourceFile:(NSString *)sourceFile
                  OssFile:(NSString *)OssFile
                  needCallBack:(int)needCallBack
                  callbackUrl:(NSString *)callbackUrl
@@ -300,40 +300,141 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
 //    }
     
     
-    OSSPutObjectRequest * put = [OSSPutObjectRequest new];
+//    OSSPutObjectRequest * put = [OSSPutObjectRequest new];
+//    
+//    // required fields
+//    put.bucketName = BucketName;
+//    put.objectKey = OssFile;
+//    //NSString * docDir = [self getDocumentDirectory];
+//    //put.uploadingFileURL = [NSURL fileURLWithPath:[docDir stringByAppendingPathComponent:@"file1m"]];
+//    put.uploadingData = sourceFile;
+////    NSLog(@"uploadingFileURL: %@", put.uploadingFileURL);
+//    // optional fields
+//    put.uploadProgress = ^(int64_t bytesSent, int64_t totalByteSent, int64_t totalBytesExpectedToSend) {
+//        NSLog(@"%lld, %lld, %lld", bytesSent, totalByteSent, totalBytesExpectedToSend);
+//        [self sendEventWithName: @"esumableUploadProgress" body:@{@"currentSize": [NSString stringWithFormat:@"%lld",totalByteSent],
+//                                                                  @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend],
+//                                                                  @"progressValue": [NSString stringWithFormat:@"%lld",totalByteSent * 100/totalBytesExpectedToSend]}];
+//        
+//    };
+//    
+//    OSSTask * putTask = [client putObject:put];
+//    
+//    [putTask continueWithBlock:^id(OSSTask *task) {
+//        NSLog(@"objectKey: %@", put.objectKey);
+//        if (!task.error) {
+//            NSLog(@"upload object success!");
+//            resolve(@YES);
+//        } else {
+//            NSLog(@"upload object failed, error: %@" , task.error);
+//            reject(@"-1", @"not respond this method", nil);
+//        }
+//        return nil;
+//    }];
     
-    // required fields
-    put.bucketName = BucketName;
-    put.objectKey = OssFile;
-    //NSString * docDir = [self getDocumentDirectory];
-    //put.uploadingFileURL = [NSURL fileURLWithPath:[docDir stringByAppendingPathComponent:@"file1m"]];
-    put.uploadingData = sourceFile;
-    NSLog(@"uploadingFileURL: %@", put.uploadingFileURL);
-    // optional fields
-    put.uploadProgress = ^(int64_t bytesSent, int64_t totalByteSent, int64_t totalBytesExpectedToSend) {
-        NSLog(@"%lld, %lld, %lld", bytesSent, totalByteSent, totalBytesExpectedToSend);
-        [self sendEventWithName: @"esumableUploadProgress" body:@{@"currentSize": [NSString stringWithFormat:@"%lld",totalByteSent],@"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend]}];
-        
-    };
-    //put.contentType = @"";
-    //put.contentMd5 = @"";
-    //put.contentEncoding = @"";
-    //put.contentDisposition = @"";
-//    put.objectMeta = [NSMutableDictionary dictionaryWithObjectsAndKeys: UpdateDate, @"Date", nil];
     
-    OSSTask * putTask = [client putObject:put];
-    
-    [putTask continueWithBlock:^id(OSSTask *task) {
-        NSLog(@"objectKey: %@", put.objectKey);
-        if (!task.error) {
-            NSLog(@"upload object success!");
-            resolve(@YES);
-        } else {
-            NSLog(@"upload object failed, error: %@" , task.error);
-            reject(@"-1", @"not respond this method", nil);
+    //阿里云视频上传的方法
+    __block NSString * recordKey;
+    __block NSString * _uploadid;
+    //NSString *fp = [self saveFile:sourceFile withName:OssFile];
+    NSURL *filePath = [NSURL URLWithString:sourceFile];
+    NSLog(@"sourceFile = %@",sourceFile);
+    NSString * bucketName = BucketName;
+    NSString * objectKey;
+    if (_uploadid == nil) {
+        objectKey = OssFile;
+        _uploadid = objectKey;
+    } else{
+        objectKey = _uploadid;
+    }
+    [[[[[[OSSTask taskWithResult:nil] continueWithBlock:^id(OSSTask *task) {
+        // 为该文件构造一个唯一的记录键
+        //        NSURL * fileURL = [NSURL fileURLWithPath:filePath];
+        NSDate * lastModified;
+        NSError * error;
+        [filePath getResourceValue:&lastModified forKey:NSURLContentModificationDateKey error:&error];
+        if (error) {
+            return [OSSTask taskWithError:error];
         }
-        return nil;
-    }];
+        recordKey = [NSString stringWithFormat:@"%@-%@-%@-%@", bucketName, objectKey, [OSSUtil getRelativePath:[filePath absoluteString]], lastModified];
+        NSLog(@"recordKeyrecordKeyrecordKey-------%@",recordKey);
+        // 通过记录键查看本地是否保存有未完成的UploadId
+        NSUserDefaults * userDefault = [NSUserDefaults standardUserDefaults];
+        
+        return [OSSTask taskWithResult:[userDefault objectForKey:recordKey]];
+    }]
+        continueWithSuccessBlock:^id(OSSTask *task) {
+            if (!task.result) {
+                // 如果本地尚无记录，调用初始化UploadId接口获取
+                OSSInitMultipartUploadRequest * initMultipart = [OSSInitMultipartUploadRequest new];
+                initMultipart.bucketName = bucketName;
+                initMultipart.objectKey = objectKey;
+                initMultipart.contentType = @"application/octet-stream";
+                return [client multipartUploadInit:initMultipart];
+            }
+            OSSLogVerbose(@"An resumable task for uploadid: %@", task.result);
+            return task;
+        }]
+       continueWithSuccessBlock:^id(OSSTask *task) {
+           NSString * uploadId = nil;
+           
+           if (task.error) {
+               return task;
+           }
+           if ([task.result isKindOfClass:[OSSInitMultipartUploadResult class]]) {
+               uploadId = ((OSSInitMultipartUploadResult *)task.result).uploadId;
+           } else {
+               uploadId = task.result;
+           }
+           
+           if (!uploadId) {
+               return [OSSTask taskWithError:[NSError errorWithDomain:OSSClientErrorDomain
+                                                                 code:OSSClientErrorCodeNilUploadid
+                                                             userInfo:@{OSSErrorMessageTOKEN: @"Can't get an upload id"}]];
+           }
+           // 将“记录键：UploadId”持久化到本地存储
+           NSUserDefaults * userDefault = [NSUserDefaults standardUserDefaults];
+           [userDefault setObject:uploadId forKey:recordKey];
+           [userDefault synchronize];
+           return [OSSTask taskWithResult:uploadId];
+       }]
+      continueWithSuccessBlock:^id(OSSTask *task) {
+          // 持有UploadId上传文件
+          OSSResumableUploadRequest * resumableUpload = [OSSResumableUploadRequest new];
+          resumableUpload.bucketName = bucketName;
+          resumableUpload.objectKey = objectKey;
+          resumableUpload.uploadId = task.result;
+          resumableUpload.uploadingFileURL = filePath;
+          resumableUpload.uploadProgress = ^(int64_t bytesSent, int64_t totalBytesSent, int64_t totalBytesExpectedToSend) {
+              float number = (float)totalBytesSent/(float)totalBytesExpectedToSend;
+              NSLog(@"number = %f",number);
+              [self sendEventWithName: @"esumableUploadProgress" body:@{@"currentSize": [NSString stringWithFormat:@"%lld",totalBytesSent],
+                                                                        @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend],
+                                                                        @"progressValue": [NSString stringWithFormat:@"%lld",totalBytesSent * 100/totalBytesExpectedToSend]}];
+          };
+          return [client resumableUpload:resumableUpload];
+      }]
+     continueWithBlock:^id(OSSTask *task) {
+         if (task.error) {
+             if ([task.error.domain isEqualToString:OSSClientErrorDomain] && task.error.code == OSSClientErrorCodeCannotResumeUpload) {
+                 // 如果续传失败且无法恢复，需要删除本地记录的UploadId，然后重启任务
+                 [[NSUserDefaults standardUserDefaults] removeObjectForKey:recordKey];
+             }
+         } else {
+             NSFileManager *fm=[NSFileManager defaultManager];
+             if ([fm fileExistsAtPath:[filePath absoluteString]]) {
+                 [fm removeItemAtPath:[filePath absoluteString] error:nil];
+             }
+             NSLog(@"上传完成!");
+             [self sendEventWithName: @"resumableUploadSuccess" body:nil];
+             resolve(@YES);
+             // 上传成功，删除本地保存的UploadId
+             _uploadid = nil;
+             [[NSUserDefaults standardUserDefaults] removeObjectForKey:recordKey];
+             //[self uploadVideoInfoWithObjectKey:objectKey duration:[NSString stringWithFormat:@"%f.1",VideoDuration]];
+         }
+         return nil;
+     }];
     
 }
 
@@ -353,7 +454,6 @@ RCT_REMAP_METHOD(uploadObjectAsync, bucketName:(NSString *)BucketName
     //NSString * docDir = [self getDocumentDirectory];
     //put.uploadingFileURL = [NSURL fileURLWithPath:[docDir stringByAppendingPathComponent:@"file1m"]];
     put.uploadingFileURL = [NSURL fileURLWithPath:SourceFile];
-    NSLog(@"uploadingFileURL: %@", put.uploadingFileURL);
     // optional fields
     put.uploadProgress = ^(int64_t bytesSent, int64_t totalByteSent, int64_t totalBytesExpectedToSend) {
         NSLog(@"%lld, %lld, %lld", bytesSent, totalByteSent, totalBytesExpectedToSend);
@@ -383,6 +483,14 @@ RCT_REMAP_METHOD(uploadObjectAsync, bucketName:(NSString *)BucketName
     }];
 }
 
-
+#pragma mark - 保存文件至沙盒
+- (NSString *) saveFile:(NSData *)fileData withName:(NSString *)fileName
+{
+    NSArray *paths=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsDirectory=[paths objectAtIndex:0];
+    NSString *fullPathToFile=[documentsDirectory stringByAppendingPathComponent:fileName];
+    [fileData writeToFile:fullPathToFile atomically:NO];
+    return fullPathToFile;
+}
 
 @end
