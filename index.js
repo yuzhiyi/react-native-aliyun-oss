@@ -168,7 +168,8 @@ const AliyunOSS = {
   },
 
   removeEventListener(type, handler) {
-    if (type !== UPLOAD_EVENT && type !== DOWNLOAD_EVENT && type !== ESUMA_UPLOAD_EVENT) {
+    if (type !== UPLOAD_EVENT && type !== DOWNLOAD_EVENT && type !== ESUMA_UPLOAD_EVENT
+        && type !== RESUMA_UPLOAD_SUCCESS_EVENT && type !== RESUMA_UPLOAD_FAIL_EVENT) {
       return false;
     }
     var listener = _subscriptions.get(handler);
