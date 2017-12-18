@@ -21,7 +21,7 @@ public class aliyunossPackage implements ReactPackage {
         );
     }
 
-    @Override
+    // RN 0.47 remove this method
     public List<Class<? extends JavaScriptModule>> createJSModules() {
         return Collections.emptyList();
     }
