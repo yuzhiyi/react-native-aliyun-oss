@@ -6,7 +6,14 @@
 //  Copyright © 2016年 lesonli. All rights reserved.
 //
 
-#import "RCTBridgeModule.h"
+#if __has_include(<React/RCTBridgeModule.h>)
+  #import <React/RCTBridgeModule.h>
+#elif __has_include("React/RCTBridgeModule.h")
+  #import "React/RCTBridgeModule.h"
+#else
+  #import "RCTBridgeModule.h"
+#endif
+
 #import "RCTEventEmitter.h"
 
 @interface RCTAliyunOSS : RCTEventEmitter <RCTBridgeModule>
