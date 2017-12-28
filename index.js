@@ -185,13 +185,25 @@ const AliyunOSS = {
   },
 
   addGetBuckerFilesListener(handler) {
-      var listener = NativeAppEventEmitter.once(
-          'getBuckerFiles',
-          (buckerFiles) => {
-            handler(buckerFiles);
-          }
-        );
-      _subscriptions.set(handler, listener);
+    var listener;
+    if (Platform.OS === 'ios') {
+      const Emitter = new NativeEventEmitter(NativeAliyunOSS);
+      listener = Emitter.addListener(
+        'getBuckerFiles',
+        (buckerFiles) => {
+          Emitter.removeAllListeners('getBuckerFiles');
+          handler(buckerFiles);
+        }
+      );
+    } else {
+      listener = NativeAppEventEmitter.once(
+        'getBuckerFiles',
+        (buckerFiles) => {
+          handler(buckerFiles);
+        }
+      );
+    }
+    _subscriptions.set(handler, listener);
   },
 
   presignConstrainedObjectURLs(bucketName,objectKeys) {
@@ -207,19 +219,40 @@ const AliyunOSS = {
         reject(e);
         return;
       }
-      NativeAppEventEmitter.once('checkObjectExist', resp => {
-        resolve(resp);
-      });
+      if (Platform.OS === 'ios') {
+        const Emitter = new NativeEventEmitter(NativeAliyunOSS);
+        Emitter.addListener('checkObjectExist', resp => {
+          Emitter.removeAllListeners('checkObjectExist');
+          resolve(resp);
+        });
+      } else {
+        NativeAppEventEmitter.once('checkObjectExist', resp => {
+          resolve(resp);
+        });
+      }
     });
   },
+
   addPresignConstrainedObjectURLsListener(handler) {
-      var listener = NativeAppEventEmitter.once(
-          'presignConstrainedObjectURLs',
-          (objectURLs) => {
-            handler(objectURLs);
-          }
-        );
-      _subscriptions.set(handler, listener);
+    var listener;
+    if (Platform.OS === 'ios') {
+      const Emitter = new NativeEventEmitter(NativeAliyunOSS);
+      listener = Emitter.addListener(
+        'presignConstrainedObjectURLs',
+        (objectURLs) => {
+          Emitter.removeAllListeners('presignConstrainedObjectURLs');
+          handler(objectURLs);
+        }
+      );
+    } else {
+      listener = NativeAppEventEmitter.once(
+        'presignConstrainedObjectURLs',
+        (objectURLs) => {
+          handler(objectURLs);
+        }
+      );
+    }
+    _subscriptions.set(handler, listener);
   },
 
 };
