@@ -12,9 +12,9 @@
 
 
 @implementation RCTAliyunOSS{
-    
+
     OSSClient *client;
- 
+    OSSResumableUploadRequest *mresumableUpload;
 }
 
 - (NSArray<NSString *> *)supportedEvents {
@@ -47,16 +47,16 @@ RCT_EXPORT_METHOD(initWithKey:(NSString *)AccessKey
                   SecretKey:(NSString *)SecretKey
                   securityToken:(NSString *)securityToken
                   Endpoint:(NSString *)Endpoint){
-    
+
     id<OSSCredentialProvider> credential = [[OSSStsTokenCredentialProvider alloc] initWithAccessKeyId:AccessKey secretKeyId:SecretKey securityToken:securityToken];
-    
+
     //bucket上绑定cname，将该cname直接设置到endPoint
     OSSClientConfiguration * conf = [OSSClientConfiguration new];
     conf.maxRetryCount = 3; // 网络请求遇到异常失败后的重试次数
     conf.timeoutIntervalForRequest = 30; // 网络请求的超时时间
     conf.timeoutIntervalForResource = 24 * 60 * 60; // 允许资源传输的最长时间
     NSString *endpoint = Endpoint;
-    
+
     client = [[OSSClient alloc] initWithEndpoint:endpoint credentialProvider:credential clientConfiguration:conf];
 }
 
@@ -64,7 +64,7 @@ RCT_EXPORT_METHOD(initWithKey:(NSString *)AccessKey
 RCT_EXPORT_METHOD(initWithSigner:(NSString *)AccessKey
                   Signature:(NSString *)Signature
                   Endpoint:(NSString *)Endpoint){
-    
+
     // 自实现签名，可以用本地签名也可以远程加签
     id<OSSCredentialProvider> credential1 = [[OSSCustomSignerCredentialProvider alloc] initWithImplementedSigner:^NSString *(NSString *contentToSign, NSError *__autoreleasing *error) {
         //NSString *signature = [OSSUtil calBase64Sha1WithData:contentToSign withSecret:@"<your secret key>"];
@@ -79,12 +79,12 @@ RCT_EXPORT_METHOD(initWithSigner:(NSString *)AccessKey
         return [NSString stringWithFormat:@"OSS %@:%@", AccessKey, Signature];
     }];
 
-    
+
     OSSClientConfiguration * conf = [OSSClientConfiguration new];
     conf.maxRetryCount = 1;
     conf.timeoutIntervalForRequest = 30;
     conf.timeoutIntervalForResource = 24 * 60 * 60;
-    
+
     client = [[OSSClient alloc] initWithEndpoint:Endpoint credentialProvider:credential1 clientConfiguration:conf];
 }
 
@@ -130,27 +130,20 @@ RCT_REMAP_METHOD(getBuckerFiles,bucketName:(NSString *)BucketName
     getBucket.bucketName = BucketName;
     getBucket.prefix = file;
     getBucket.maxKeys = maxkeys;
-    
+    getBucket.marker = marker;
+
     OSSTask * getBucketTask = [client getBucket:getBucket];
     [getBucketTask continueWithBlock:^id(OSSTask *task) {
         if (!task.error) {
-            
+
             OSSGetBucketResult * result = task.result;
             NSMutableArray *array = [[NSMutableArray alloc] init];
             for (NSDictionary * objectInfo in result.contents) {
-//                NSLog(@"list object: %@", objectInfo);
-//                NSLog(@"%@",[objectInfo valueForKey:@"Key"]);
                 NSMutableDictionary *dict = [[NSMutableDictionary alloc] init];
                 [dict setObject:[objectInfo valueForKey:@"Key"] forKey:@"key"];
                 [dict setObject:[objectInfo valueForKey:@"ETag"] forKey:@"eTag"];
                 [dict setObject:[objectInfo valueForKey:@"LastModified"] forKey:@"lastModified"];
                 [dict setObject:[NSNumber numberWithDouble:[[objectInfo valueForKey:@"Size"] doubleValue]] forKey:@"size"];
-                //NSLog(@"%@",[objectInfo valueForKey:@"key"]);
-//                NSDictionary *dict = @{@"key":[objectInfo valueForKey:@"key"],
-//                                       @"eTag":[objectInfo valueForKey:@"eTag"],
-//                                       @"lastModified":[objectInfo valueForKey:@"lastModified"],
-//                                       @"size":[NSNumber numberWithDouble:[[objectInfo valueForKey:@"size"] doubleValue]]};
-                NSLog(@"dict = %@",dict);
                 [array addObject:dict];
             }
             NSString *nextMarker = nil;
@@ -159,17 +152,11 @@ RCT_REMAP_METHOD(getBuckerFiles,bucketName:(NSString *)BucketName
             }else{
                 nextMarker = result.nextMarker;
             }
-            NSLog(@"result.isTruncated = %d",result.isTruncated);
             [self sendEventWithName:@"getBuckerFiles" body:@{@"isTruncated":[NSNumber numberWithBool:result.isTruncated],
                                                              @"nextMarker":nextMarker,
                                                              @"buckerFiles":array}];
-            
-//            [self performSelectorOnMainThread:@selector(updateUI) withObject:nil waitUntilDone:YES];
-            NSLog(@"get bucket success!");
             resolve(@"getBuckerFilesSuccess");
         } else {
-//            [self performSelectorOnMainThread:@selector(updateUI) withObject:nil waitUntilDone:YES];
-            NSLog(@"get bucket failed, error: %@", task.error);
             reject(@"-1", @"get bucket failed, error", task.error);
         }
         return nil;
@@ -210,6 +197,16 @@ RCT_REMAP_METHOD(checkObjectExist, bucketName:(NSString *)BucketName
     [self sendEventWithName: @"checkObjectExist" body:@{@"isObjectExist": [NSNumber numberWithBool:exist]}];
 }
 
+//取消上传
+RCT_REMAP_METHOD(cancleResumableTask,
+                 resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject)
+{
+    if (mresumableUpload != nil) {
+        [mresumableUpload cancel];
+    }
+}
+
 //异步断点上传
 RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)BucketName
                  sourceFile:(NSString *)sourceFile
@@ -218,127 +215,10 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
                  callbackUrl:(NSString *)callbackUrl
                  resolver:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject){
-    
-//    __block NSString * uploadId = nil;
-//    __block NSMutableArray * partInfos = [NSMutableArray new];
-//    
-//    NSLog(@"SourceFile = %@",sourceFile);
-//    NSLog(@"OssFile = %@",OssFile);
-//    OSSInitMultipartUploadRequest * init = [OSSInitMultipartUploadRequest new];
-//    init.bucketName = BucketName;
-//    init.objectKey = OssFile;
-//    init.contentType = @"application/octet-stream";
-//    init.objectMeta = [NSMutableDictionary dictionaryWithObjectsAndKeys:@"value1", @"x-oss-meta-name1", nil];
-//    
-//    OSSTask * initTask = [client multipartUploadInit:init];
-//    [initTask waitUntilFinished];
-//    
-//    if (!initTask.error) {
-//        OSSInitMultipartUploadResult * result = initTask.result;
-//        uploadId = result.uploadId;
-//        NSLog(@"init multipart upload success: %@", result.uploadId);
-//    } else {
-//        NSLog(@"multipart upload failed, error: %@", initTask.error);
-//        return;
-//    }
-//    
-//    for (int i = 1; i <= 20; i++) {
-//        @autoreleasepool {
-//            OSSUploadPartRequest * uploadPart = [OSSUploadPartRequest new];
-//            uploadPart.bucketName = BucketName;
-//            uploadPart.objectkey = OssFile;
-//            uploadPart.uploadId = uploadId;
-//            uploadPart.partNumber = i; // part number start from 1
-//            uploadPart.uploadPartProgress = ^(int64_t bytesSent, int64_t totalBytesSent, int64_t totalBytesExpectedToSend) {
-//                [self sendEventWithName: @"esumableUploadProgress" body:@{@"currentSize": [NSString stringWithFormat:@"%lld",totalBytesSent],
-//                                                                  @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend]}];
-//            };
-//            NSString * docDir = [self getDocumentDirectory];
-//            // uploadPart.uploadPartFileURL = [NSURL URLWithString:[docDir stringByAppendingPathComponent:@"file1m"]];
-////            uploadPart.uploadPartData = [NSData dataWithContentsOfFile:[docDir stringByAppendingPathComponent:@"file1m"]];
-//            uploadPart.uploadPartData = sourceFile;
-//            
-//            OSSTask * uploadPartTask = [client uploadPart:uploadPart];
-//            
-//            [uploadPartTask waitUntilFinished];
-//            
-//            if (!uploadPartTask.error) {
-//                OSSUploadPartResult * result = uploadPartTask.result;
-//                uint64_t fileSize = [[[NSFileManager defaultManager] attributesOfItemAtPath:uploadPart.uploadPartFileURL.absoluteString error:nil] fileSize];
-//                [partInfos addObject:[OSSPartInfo partInfoWithPartNum:i eTag:result.eTag size:fileSize]];
-//            } else {
-//                NSLog(@"upload part error: %@", uploadPartTask.error);
-//                return;
-//            }
-//        }
-//    }
-//    
-//    OSSCompleteMultipartUploadRequest * complete = [OSSCompleteMultipartUploadRequest new];
-//    complete.bucketName = BucketName;
-//    complete.objectKey = OssFile;
-//    complete.uploadId = uploadId;
-//    complete.partInfos = partInfos;
-//    
-//    complete.callbackParam = @{
-//                               @"callbackUrl": callbackUrl,
-//                               @"callbackBody": [NSString stringWithFormat:@"filename=%@",OssFile]
-//                               };
-////    complete.callbackVar = @{
-////                             @"var1": @"value1",
-////                             @"var2": @"value2"
-////                             };
-//    
-//    OSSTask * completeTask = [client completeMultipartUpload:complete];
-//    
-//    [completeTask waitUntilFinished];
-//    
-//    if (!completeTask.error) {
-//        NSLog(@"multipart upload success!");
-//    } else {
-//        NSLog(@"multipart upload failed, error: %@", completeTask.error);
-//        return;
-//    }
-    
-    
-//    OSSPutObjectRequest * put = [OSSPutObjectRequest new];
-//    
-//    // required fields
-//    put.bucketName = BucketName;
-//    put.objectKey = OssFile;
-//    //NSString * docDir = [self getDocumentDirectory];
-//    //put.uploadingFileURL = [NSURL fileURLWithPath:[docDir stringByAppendingPathComponent:@"file1m"]];
-//    put.uploadingData = sourceFile;
-////    NSLog(@"uploadingFileURL: %@", put.uploadingFileURL);
-//    // optional fields
-//    put.uploadProgress = ^(int64_t bytesSent, int64_t totalByteSent, int64_t totalBytesExpectedToSend) {
-//        NSLog(@"%lld, %lld, %lld", bytesSent, totalByteSent, totalBytesExpectedToSend);
-//        [self sendEventWithName: @"esumableUploadProgress" body:@{@"currentSize": [NSString stringWithFormat:@"%lld",totalByteSent],
-//                                                                  @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend],
-//                                                                  @"progressValue": [NSString stringWithFormat:@"%lld",totalByteSent * 100/totalBytesExpectedToSend]}];
-//        
-//    };
-//    
-//    OSSTask * putTask = [client putObject:put];
-//    
-//    [putTask continueWithBlock:^id(OSSTask *task) {
-//        NSLog(@"objectKey: %@", put.objectKey);
-//        if (!task.error) {
-//            NSLog(@"upload object success!");
-//            resolve(@YES);
-//        } else {
-//            NSLog(@"upload object failed, error: %@" , task.error);
-//            reject(@"-1", @"not respond this method", nil);
-//        }
-//        return nil;
-//    }];
-    
-    
     //阿里云视频上传的方法
     __block NSString * recordKey;
     __block NSString * _uploadid;
-    //NSString *fp = [self saveFile:sourceFile withName:OssFile];
     NSURL *filePath = [NSURL URLWithString:sourceFile];
-    NSLog(@"sourceFile = %@",sourceFile);
     NSString * bucketName = BucketName;
     NSString * objectKey;
     if (_uploadid == nil) {
@@ -360,7 +240,7 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
         NSLog(@"recordKeyrecordKeyrecordKey-------%@",recordKey);
         // 通过记录键查看本地是否保存有未完成的UploadId
         NSUserDefaults * userDefault = [NSUserDefaults standardUserDefaults];
-        
+
         return [OSSTask taskWithResult:[userDefault objectForKey:recordKey]];
     }]
         continueWithSuccessBlock:^id(OSSTask *task) {
@@ -377,7 +257,7 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
         }]
        continueWithSuccessBlock:^id(OSSTask *task) {
            NSString * uploadId = nil;
-           
+
            if (task.error) {
                return task;
            }
@@ -386,7 +266,7 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
            } else {
                uploadId = task.result;
            }
-           
+
            if (!uploadId) {
                return [OSSTask taskWithError:[NSError errorWithDomain:OSSClientErrorDomain
                                                                  code:OSSClientErrorCodeNilUploadid
@@ -412,6 +292,7 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
                                                                         @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend],
                                                                         @"progressValue": [NSString stringWithFormat:@"%lld",totalBytesSent * 100/totalBytesExpectedToSend]}];
           };
+          mresumableUpload = resumableUpload;
           return [client resumableUpload:resumableUpload];
       }]
      continueWithBlock:^id(OSSTask *task) {
@@ -435,7 +316,7 @@ RCT_REMAP_METHOD(resumableUploadWithRecordPathSetting, bucketName:(NSString *)Bu
          }
          return nil;
      }];
-    
+
 }
 
 //异步上传
@@ -445,9 +326,9 @@ RCT_REMAP_METHOD(uploadObjectAsync, bucketName:(NSString *)BucketName
                   UpdateDate:(NSString *)UpdateDate
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject) {
-    
+
     OSSPutObjectRequest * put = [OSSPutObjectRequest new];
-    
+
     // required fields
     put.bucketName = BucketName;
     put.objectKey = OssFile;
@@ -462,14 +343,10 @@ RCT_REMAP_METHOD(uploadObjectAsync, bucketName:(NSString *)BucketName
                                                           @"totalSize": [NSString stringWithFormat:@"%lld",totalBytesExpectedToSend]}];
 
     };
-    //put.contentType = @"";
-    //put.contentMd5 = @"";
-    //put.contentEncoding = @"";
-    //put.contentDisposition = @"";
      put.objectMeta = [NSMutableDictionary dictionaryWithObjectsAndKeys: UpdateDate, @"Date", nil];
-    
+
     OSSTask * putTask = [client putObject:put];
-    
+
     [putTask continueWithBlock:^id(OSSTask *task) {
         NSLog(@"objectKey: %@", put.objectKey);
         if (!task.error) {
