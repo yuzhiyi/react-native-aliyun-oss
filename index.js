@@ -210,15 +210,8 @@ const AliyunOSS = {
     return NativeAliyunOSS.presignConstrainedObjectURLs(bucketName,objectKeys);
   },
 
-  checkObjectExist(bucketName,objectKey) {
+  checkObjectExist(bucketName, objectKey) {
     return new Promise((resolve, reject) => {
-      try {
-        NativeAliyunOSS.checkObjectExist(bucketName, objectKey);
-      }
-      catch (e) {
-        reject(e);
-        return;
-      }
       if (Platform.OS === 'ios') {
         const Emitter = new NativeEventEmitter(NativeAliyunOSS);
         Emitter.addListener('checkObjectExist', resp => {
@@ -229,6 +222,13 @@ const AliyunOSS = {
         NativeAppEventEmitter.once('checkObjectExist', resp => {
           resolve(resp);
         });
+      }
+
+      try {
+        NativeAliyunOSS.checkObjectExist(bucketName, objectKey);
+      } catch (e) {
+        reject(e);
+        return;
       }
     });
   },
